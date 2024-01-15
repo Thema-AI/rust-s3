@@ -61,6 +61,11 @@ use crate::PostPolicy;
 use http::header::HeaderName;
 use http::HeaderMap;
 
+#[cfg(feature = "with-tokio")]
+use hyper::{client::HttpConnector, Client};
+#[cfg(feature = "with-tokio")]
+use hyper_tls::HttpsConnector;
+
 pub const CHUNK_SIZE: usize = 8_388_608; // 8 Mebibytes, min is 5 (5_242_880);
 
 const DEFAULT_REQUEST_TIMEOUT: Option<Duration> = Some(Duration::from_secs(60));
@@ -656,6 +661,24 @@ impl Bucket {
             #[cfg(feature = "with-tokio")]
             http_client: Arc::new(client(Some(request_timeout))?),
         })
+    }
+
+    #[cfg(feature = "with-tokio")]
+    pub fn with_http_client(
+        &self,
+        http_client: Arc<Client<HttpsConnector<HttpConnector>>>,
+    ) -> Bucket {
+        Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            request_timeout: self.request_timeout,
+            path_style: self.path_style,
+            listobjects_v2: self.listobjects_v2,
+            http_client,
+        }
     }
 
     pub fn with_listobjects_v1(&self) -> Bucket {
