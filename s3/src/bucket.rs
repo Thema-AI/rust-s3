@@ -2,6 +2,7 @@
 use block_on_proc::block_on;
 #[cfg(feature = "tags")]
 use minidom::Element;
+use reqwest::Client;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -12,6 +13,7 @@ use crate::region::Region;
 use crate::request::ResponseData;
 #[cfg(any(feature = "with-tokio", feature = "with-async-std"))]
 use crate::request::ResponseDataStream;
+use crate::request::tokio_backend::new_client;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
@@ -91,6 +93,7 @@ pub struct Bucket {
     pub request_timeout: Option<Duration>,
     path_style: bool,
     listobjects_v2: bool,
+    client: Arc<Client>,
 }
 
 impl Bucket {
@@ -426,6 +429,7 @@ impl Bucket {
     /// let bucket = Bucket::new(bucket_name, region, credentials).unwrap();
     /// ```
     pub fn new(name: &str, region: Region, credentials: Credentials) -> Result<Bucket, S3Error> {
+        let client = Arc::new(new_client(DEFAULT_REQUEST_TIMEOUT)?);
         Ok(Bucket {
             name: name.into(),
             region,
@@ -435,6 +439,7 @@ impl Bucket {
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             path_style: false,
             listobjects_v2: true,
+            client,
         })
     }
 
@@ -450,6 +455,7 @@ impl Bucket {
     /// let bucket = Bucket::new_public(bucket_name, region).unwrap();
     /// ```
     pub fn new_public(name: &str, region: Region) -> Result<Bucket, S3Error> {
+        let client = Arc::new(new_client(DEFAULT_REQUEST_TIMEOUT)?);
         Ok(Bucket {
             name: name.into(),
             region,
@@ -459,7 +465,22 @@ impl Bucket {
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             path_style: false,
             listobjects_v2: true,
+            client,
         })
+    }
+
+    pub fn with_client(&self, client: Arc<Client>) -> Bucket {
+        Bucket {
+            name: self.name.clone(),
+            region: self.region.clone(),
+            credentials: self.credentials.clone(),
+            extra_headers: self.extra_headers.clone(),
+            extra_query: self.extra_query.clone(),
+            request_timeout: self.request_timeout,
+            path_style: true,
+            listobjects_v2: self.listobjects_v2,
+            client,
+        }
     }
 
     pub fn with_path_style(&self) -> Bucket {
@@ -472,6 +493,7 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: true,
             listobjects_v2: self.listobjects_v2,
+            client: self.client.clone(),
         }
     }
 
@@ -485,6 +507,7 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
+            client: self.client.clone(),
         }
     }
 
@@ -498,10 +521,12 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
+            client: self.client.clone(),
         }
     }
 
     pub fn with_request_timeout(&self, request_timeout: Duration) -> Bucket {
+        let client = Arc::new(new_client(Some(request_timeout)).unwrap());
         Bucket {
             name: self.name.clone(),
             region: self.region.clone(),
@@ -511,6 +536,7 @@ impl Bucket {
             request_timeout: Some(request_timeout),
             path_style: self.path_style,
             listobjects_v2: self.listobjects_v2,
+            client,
         }
     }
 
@@ -524,7 +550,12 @@ impl Bucket {
             request_timeout: self.request_timeout,
             path_style: self.path_style,
             listobjects_v2: false,
+            client: self.client.clone(),
         }
+    }
+
+    pub fn http_client(&self) -> Arc<Client> {
+        self.client.clone()
     }
 
     /// Copy file from an S3 path, internally within the same bucket.

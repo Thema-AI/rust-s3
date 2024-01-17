@@ -3,8 +3,10 @@ extern crate md5;
 
 use bytes::Bytes;
 use maybe_async::maybe_async;
+use reqwest::Error;
 use reqwest::{Client, Response};
 use std::collections::HashMap;
+use std::time::Duration;
 use time::OffsetDateTime;
 
 use super::request_trait::{Request, ResponseData, ResponseDataStream};
@@ -22,6 +24,33 @@ pub struct Reqwest<'a> {
     pub command: Command<'a>,
     pub datetime: OffsetDateTime,
     pub sync: bool,
+}
+
+pub fn new_client(request_timeout: Option<Duration>) -> Result<Client, Error> {
+        let mut client_builder = Client::builder();
+        if let Some(timeout) = request_timeout {
+            client_builder = client_builder.timeout(timeout)
+        }
+
+        if cfg!(feature = "no-verify-ssl") {
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "tokio-native-tls")]
+                {
+                    client_builder = client_builder.danger_accept_invalid_hostnames(true);
+                }
+
+            }
+
+            cfg_if::cfg_if! {
+                if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
+                {
+                    client_builder = client_builder.danger_accept_invalid_certs(true);
+                }
+
+            }
+        }
+
+        client_builder.build()
 }
 
 #[maybe_async]
@@ -52,30 +81,7 @@ impl<'a> Request for Reqwest<'a> {
             Err(e) => return Err(e),
         };
 
-        let mut client_builder = Client::builder();
-        if let Some(timeout) = self.bucket.request_timeout {
-            client_builder = client_builder.timeout(timeout)
-        }
-
-        if cfg!(feature = "no-verify-ssl") {
-            cfg_if::cfg_if! {
-                if #[cfg(feature = "tokio-native-tls")]
-                {
-                    client_builder = client_builder.danger_accept_invalid_hostnames(true);
-                }
-
-            }
-
-            cfg_if::cfg_if! {
-                if #[cfg(any(feature = "tokio-native-tls", feature = "tokio-rustls-tls"))]
-                {
-                    client_builder = client_builder.danger_accept_invalid_certs(true);
-                }
-
-            }
-        }
-
-        let client = client_builder.build()?;
+        let client = self.bucket.http_client();
 
         let method = match self.command.http_verb() {
             HttpMethod::Delete => reqwest::Method::DELETE,
